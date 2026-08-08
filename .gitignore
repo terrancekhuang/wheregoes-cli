@@ -1,0 +1,7 @@
+/wheregoes
+*.exe
+*.test
+*.out
+
+.claude/
+.impeccable/
