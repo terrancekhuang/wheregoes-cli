@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -119,5 +120,62 @@ func TestRun_SuccessPrintsTraceToStdout(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), "\x1b[") {
 		t.Fatalf("stdout = %q; want no ANSI escapes when stdout isn't a terminal", stdout.String())
+	}
+}
+
+func withFakeClipboard(t *testing.T, fn func(string) error) {
+	t.Helper()
+	original := copyToClipboard
+	copyToClipboard = fn
+	t.Cleanup(func() { copyToClipboard = original })
+}
+
+func TestRun_CopyFlagSuccessPrintsConfirmation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	var copied string
+	withFakeClipboard(t, func(s string) error {
+		copied = s
+		return nil
+	})
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--copy", server.URL}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d; want 0; stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Copied to clipboard: "+server.URL) {
+		t.Fatalf("stdout = %q; want a copy confirmation", stdout.String())
+	}
+	if copied != server.URL {
+		t.Fatalf("copied = %q; want %q", copied, server.URL)
+	}
+}
+
+func TestRun_CopyFlagFailureWarnsButKeepsExitZero(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	withFakeClipboard(t, func(s string) error {
+		return errors.New("no clipboard utility available")
+	})
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--copy", server.URL}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d; want 0 even when clipboard copy fails", code)
+	}
+	if !strings.Contains(stderr.String(), "Warning: could not copy to clipboard") {
+		t.Fatalf("stderr = %q; want a clipboard warning", stderr.String())
+	}
+	if strings.Contains(stdout.String(), "Copied to clipboard") {
+		t.Fatalf("stdout = %q; want no confirmation when copy failed", stdout.String())
 	}
 }

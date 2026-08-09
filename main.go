@@ -10,11 +10,18 @@ import (
 	"io"
 	"os"
 
+	"github.com/atotto/clipboard"
 	"golang.org/x/term"
 
 	"github.com/terrancekhuang/wheregoes/internal/render"
 	"github.com/terrancekhuang/wheregoes/internal/tracer"
 )
+
+// copyToClipboard writes text to the system clipboard. It's a package-level
+// var (rather than a direct call to clipboard.WriteAll) so tests can inject
+// a fake and assert both the success and failure paths without touching a
+// real OS clipboard, which usually isn't available in CI/sandboxes.
+var copyToClipboard = clipboard.WriteAll
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
@@ -23,9 +30,12 @@ func main() {
 func run(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("wheregoes", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	copyFlag := fs.Bool("copy", false, "copy the final destination URL to the clipboard")
 	fs.Usage = func() {
-		fmt.Fprintln(stderr, "Usage: wheregoes <url>")
+		fmt.Fprintln(stderr, "Usage: wheregoes [--copy] <url>")
 		fmt.Fprintln(stderr, "\nTraces a URL through its full chain of HTTP redirects and prints each hop.")
+		fmt.Fprintln(stderr, "\nFlags:")
+		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -63,6 +73,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if err := renderFn(stdout, result); err != nil {
 		fmt.Fprintf(stderr, "Error: failed to write output: %s\n", err)
 		return 1
+	}
+
+	if *copyFlag {
+		if err := copyToClipboard(result.FinalURL); err != nil {
+			fmt.Fprintf(stderr, "Warning: could not copy to clipboard: %s\n", err)
+		} else {
+			fmt.Fprintf(stdout, "Copied to clipboard: %s\n", result.FinalURL)
+		}
 	}
 	return 0
 }
