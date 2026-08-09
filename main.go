@@ -10,6 +10,8 @@ import (
 	"io"
 	"os"
 
+	"golang.org/x/term"
+
 	"github.com/terrancekhuang/wheregoes/internal/render"
 	"github.com/terrancekhuang/wheregoes/internal/tracer"
 )
@@ -54,9 +56,39 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	if err := render.Text(stdout, result); err != nil {
+	renderFn := render.Text
+	if shouldUseColor(os.LookupEnv, isTerminal(stdout)) {
+		renderFn = render.Color
+	}
+	if err := renderFn(stdout, result); err != nil {
 		fmt.Fprintf(stderr, "Error: failed to write output: %s\n", err)
 		return 1
 	}
 	return 0
+}
+
+// isTerminal reports whether w is a TTY. Only *os.File can be a terminal,
+// so writers used in tests (e.g. *bytes.Buffer) always report false,
+// keeping run() deterministic without a real TTY.
+func isTerminal(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	return term.IsTerminal(int(f.Fd()))
+}
+
+// shouldUseColor decides whether to emit ANSI color codes, honoring the
+// NO_COLOR convention (https://no-color.org — presence of the variable
+// disables color regardless of its value) and TERM=dumb before falling
+// back to whether stdout is actually a terminal. lookupEnv and isTerminal
+// are injected so tests can exercise every branch without a real TTY.
+func shouldUseColor(lookupEnv func(string) (string, bool), terminal bool) bool {
+	if _, set := lookupEnv("NO_COLOR"); set {
+		return false
+	}
+	if termEnv, _ := lookupEnv("TERM"); termEnv == "dumb" {
+		return false
+	}
+	return terminal
 }
