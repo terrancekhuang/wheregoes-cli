@@ -1,5 +1,6 @@
 // Command wheregoes traces a URL through its full chain of HTTP redirects,
-// printing each hop's status, headers, body, and timing.
+// printing each hop's status and redirect target. Pass --verbose to also
+// print each hop's timing, response headers, and response body.
 package main
 
 import (
@@ -31,8 +32,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("wheregoes", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	copyFlag := fs.Bool("copy", false, "copy the final destination URL to the clipboard")
+	verboseFlag := fs.Bool("verbose", false, "show per-hop timing, response headers, and response body")
 	fs.Usage = func() {
-		fmt.Fprintln(stderr, "Usage: wheregoes [--copy] <url>")
+		fmt.Fprintln(stderr, "Usage: wheregoes [--copy] [--verbose] <url>")
 		fmt.Fprintln(stderr, "\nTraces a URL through its full chain of HTTP redirects and prints each hop.")
 		fmt.Fprintln(stderr, "\nFlags:")
 		fs.PrintDefaults()
@@ -70,7 +72,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if shouldUseColor(os.LookupEnv, isTerminal(stdout)) {
 		renderFn = render.Color
 	}
-	if err := renderFn(stdout, result); err != nil {
+	if err := renderFn(stdout, result, *verboseFlag); err != nil {
 		fmt.Fprintf(stderr, "Error: failed to write output: %s\n", err)
 		return 1
 	}

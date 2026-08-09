@@ -39,7 +39,7 @@ func TestColor_StatusCodeColoring(t *testing.T) {
 	}
 	for _, c := range cases {
 		var buf strings.Builder
-		if err := Color(&buf, hopTrace(c.status)); err != nil {
+		if err := Color(&buf, hopTrace(c.status), false); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		out := buf.String()
@@ -51,7 +51,7 @@ func TestColor_StatusCodeColoring(t *testing.T) {
 
 func TestColor_ContainsResetCodes(t *testing.T) {
 	var buf strings.Builder
-	if err := Color(&buf, hopTrace(http.StatusOK)); err != nil {
+	if err := Color(&buf, hopTrace(http.StatusOK), false); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	out := buf.String()
@@ -63,7 +63,7 @@ func TestColor_ContainsResetCodes(t *testing.T) {
 func TestColor_FinalDestinationCallout(t *testing.T) {
 	trace := hopTrace(http.StatusOK)
 	var buf strings.Builder
-	if err := Color(&buf, trace); err != nil {
+	if err := Color(&buf, trace, false); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	out := buf.String()
@@ -75,11 +75,24 @@ func TestColor_FinalDestinationCallout(t *testing.T) {
 	}
 }
 
+func TestColor_DefaultOmitsTimingHeadersAndBody(t *testing.T) {
+	var buf strings.Builder
+	if err := Color(&buf, hopTrace(http.StatusOK), false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	for _, unwanted := range []string{"Time:", "Headers:", "Content-Type", "Body:"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("default (non-verbose) output should omit %q\n---\n%s", unwanted, out)
+		}
+	}
+}
+
 func TestColor_StillContainsPlainContent(t *testing.T) {
 	// The underlying structure (hop numbering, headers, summary) must
 	// survive being wrapped in ANSI codes.
 	var buf strings.Builder
-	if err := Color(&buf, hopTrace(http.StatusMovedPermanently)); err != nil {
+	if err := Color(&buf, hopTrace(http.StatusMovedPermanently), true); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	out := buf.String()

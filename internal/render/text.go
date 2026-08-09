@@ -26,18 +26,20 @@ func (ew *errWriter) printf(format string, args ...any) {
 }
 
 // Text writes a plain-text rendering of the trace: one block per hop
-// followed by a summary of the whole chain.
-func Text(w io.Writer, t *tracer.Trace) error {
-	return render(w, t, plainStyle)
+// followed by a summary of the whole chain. Per-hop timing, headers, and
+// body are only included when verbose is true; the default view shows
+// just enough per hop to follow the chain (status and redirect target).
+func Text(w io.Writer, t *tracer.Trace, verbose bool) error {
+	return render(w, t, plainStyle, verbose)
 }
 
 // render writes a hop-by-hop trace followed by a summary, using s to
 // control whether (and how) output is color-wrapped. Text and Color are
 // both thin wrappers over this so the two never drift structurally apart.
-func render(w io.Writer, t *tracer.Trace, s style) error {
+func render(w io.Writer, t *tracer.Trace, s style, verbose bool) error {
 	ew := &errWriter{w: w}
 	for i, hop := range t.Hops {
-		writeHop(ew, i+1, hop, s)
+		writeHop(ew, i+1, hop, s, verbose)
 		ew.printf("\n")
 	}
 	if s.showFinalCallout {
@@ -47,15 +49,19 @@ func render(w io.Writer, t *tracer.Trace, s style) error {
 	return ew.err
 }
 
-func writeHop(ew *errWriter, number int, hop tracer.Hop, s style) {
+func writeHop(ew *errWriter, number int, hop tracer.Hop, s style, verbose bool) {
 	ew.printf("%s\n", s.cyan(fmt.Sprintf("Hop %d: GET %s", number, hop.RequestedURL)))
 
 	statusColor := s.statusColor(hop.StatusCode)
 	ew.printf("  Status: %s\n", statusColor(statusLabel(hop.StatusCode)))
-	ew.printf("  Time:   %s\n", hop.Duration.Round(time.Millisecond))
 	if hop.RedirectTarget != "" {
 		ew.printf("  Redirects to: %s\n", s.bold(hop.RedirectTarget))
 	}
+	if !verbose {
+		return
+	}
+
+	ew.printf("  Time:   %s\n", hop.Duration.Round(time.Millisecond))
 
 	ew.printf("  %s\n", s.dim("Headers:"))
 	keys := make([]string, 0, len(hop.Headers))

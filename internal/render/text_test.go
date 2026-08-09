@@ -37,7 +37,7 @@ func TestText_ContainsHopsAndSummary(t *testing.T) {
 	}
 
 	var buf strings.Builder
-	if err := Text(&buf, trace); err != nil {
+	if err := Text(&buf, trace, false); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	out := buf.String()
@@ -59,6 +59,64 @@ func TestText_ContainsHopsAndSummary(t *testing.T) {
 	}
 }
 
+func TestText_DefaultOmitsTimingHeadersAndBody(t *testing.T) {
+	trace := &tracer.Trace{
+		OriginalURL: "https://short.example/abc",
+		FinalURL:    "https://final.example/page",
+		HopCount:    1,
+		Hops: []tracer.Hop{
+			{
+				RequestedURL: "https://short.example/abc",
+				StatusCode:   http.StatusOK,
+				Headers:      http.Header{"Content-Type": {"text/html"}},
+				Body:         []byte("<html>final</html>"),
+				Duration:     142 * time.Millisecond,
+			},
+		},
+	}
+
+	var buf strings.Builder
+	if err := Text(&buf, trace, false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+
+	for _, unwanted := range []string{"Time:", "Headers:", "Content-Type", "Body:", "<html>final</html>"} {
+		if strings.Contains(out, unwanted) {
+			t.Errorf("default (non-verbose) output should omit %q\n---\n%s", unwanted, out)
+		}
+	}
+}
+
+func TestText_VerboseIncludesTimingHeadersAndBody(t *testing.T) {
+	trace := &tracer.Trace{
+		OriginalURL: "https://short.example/abc",
+		FinalURL:    "https://final.example/page",
+		HopCount:    1,
+		Hops: []tracer.Hop{
+			{
+				RequestedURL: "https://short.example/abc",
+				StatusCode:   http.StatusOK,
+				Headers:      http.Header{"Content-Type": {"text/html"}},
+				Body:         []byte("<html>final</html>"),
+				Duration:     142 * time.Millisecond,
+			},
+		},
+	}
+
+	var buf strings.Builder
+	if err := Text(&buf, trace, true); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+
+	for _, want := range []string{"Time:   142ms", "Headers:", "Content-Type: text/html", "Body:", "<html>final</html>"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("verbose output missing %q\n---\n%s", want, out)
+		}
+	}
+}
+
 func TestText_BinaryPlaceholder(t *testing.T) {
 	trace := &tracer.Trace{
 		OriginalURL: "https://x.example/img",
@@ -76,7 +134,7 @@ func TestText_BinaryPlaceholder(t *testing.T) {
 	}
 
 	var buf strings.Builder
-	if err := Text(&buf, trace); err != nil {
+	if err := Text(&buf, trace, true); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	out := buf.String()
@@ -106,7 +164,7 @@ func TestText_TruncatedBodyNote(t *testing.T) {
 	}
 
 	var buf strings.Builder
-	if err := Text(&buf, trace); err != nil {
+	if err := Text(&buf, trace, true); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	out := buf.String()

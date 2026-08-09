@@ -121,6 +121,28 @@ func TestRun_SuccessPrintsTraceToStdout(t *testing.T) {
 	if strings.Contains(stdout.String(), "\x1b[") {
 		t.Fatalf("stdout = %q; want no ANSI escapes when stdout isn't a terminal", stdout.String())
 	}
+	if strings.Contains(stdout.String(), "Headers:") || strings.Contains(stdout.String(), "Body:") {
+		t.Fatalf("stdout = %q; want headers/body omitted by default", stdout.String())
+	}
+}
+
+func TestRun_VerboseFlagShowsHeadersAndBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--verbose", server.URL}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d; want 0; stderr=%q", code, stderr.String())
+	}
+	for _, want := range []string{"Time:", "Headers:", "Content-Type: text/plain", "Body:", "ok"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("stdout = %q; want %q present with --verbose", stdout.String(), want)
+		}
+	}
 }
 
 func withFakeClipboard(t *testing.T, fn func(string) error) {
