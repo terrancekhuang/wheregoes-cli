@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/atotto/clipboard"
 	"golang.org/x/term"
@@ -51,7 +52,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	result, err := tracer.Run(context.Background(), fs.Arg(0), tracer.DefaultOptions())
+	url := fs.Arg(0)
+	if strings.Contains(url, `\`) {
+		fmt.Fprintf(stderr, "Warning: URL contains a backslash (%q); this is usually leftover shell escaping "+
+			"and will be requested literally, likely producing a wrong path. Re-run with the raw URL in single quotes.\n", url)
+	}
+
+	result, err := tracer.Run(context.Background(), url, tracer.DefaultOptions())
 	if err != nil {
 		fmt.Fprintf(stderr, "Error: %s\n", err)
 		var traceErr *tracer.TraceError

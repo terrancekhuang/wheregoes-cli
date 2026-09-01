@@ -65,6 +65,26 @@ func TestRun_UnreachableHost(t *testing.T) {
 	}
 }
 
+func TestRun_BackslashInURLWarnsButStillTraces(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	code := run([]string{server.URL + `/a\b`}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("exit code = %d; want 0; stderr=%q", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Warning: URL contains a backslash") {
+		t.Fatalf("stderr = %q; want a backslash warning", stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Summary:") {
+		t.Fatalf("stdout = %q; want trace output despite the warning", stdout.String())
+	}
+}
+
 func TestShouldUseColor(t *testing.T) {
 	env := func(vals map[string]string) func(string) (string, bool) {
 		return func(key string) (string, bool) {
