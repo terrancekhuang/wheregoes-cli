@@ -198,3 +198,60 @@ func TestRun_RelativeLocationResolution(t *testing.T) {
 		t.Fatalf("FinalURL = %q; want %q", trace.FinalURL, want)
 	}
 }
+
+// A chain whose last hop is unreachable has usually already revealed the
+// destination, so Run must hand back the hops it did observe alongside
+// the error instead of discarding the whole trace.
+func TestRun_FailedHopReturnsPartialTrace(t *testing.T) {
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	deadURL := dead.URL
+	dead.Close() // nothing listens on this address anymore
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, deadURL+"/blocked", http.StatusMovedPermanently)
+	}))
+	defer server.Close()
+
+	trace, err := Run(context.Background(), server.URL, testOptions())
+	if err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+	if trace == nil {
+		t.Fatalf("expected partial trace alongside error, got nil")
+	}
+	if !trace.Incomplete {
+		t.Fatalf("Incomplete = false; want true")
+	}
+	if trace.HopCount != 1 || len(trace.Hops) != 1 {
+		t.Fatalf("HopCount = %d, len(Hops) = %d; want 1 and 1", trace.HopCount, len(trace.Hops))
+	}
+	if got, want := trace.Hops[0].RedirectTarget, deadURL+"/blocked"; got != want {
+		t.Fatalf("Hops[0].RedirectTarget = %q; want %q", got, want)
+	}
+	if got, want := trace.FinalURL, deadURL+"/blocked"; got != want {
+		t.Fatalf("FinalURL = %q; want %q (the URL that could not be fetched)", got, want)
+	}
+}
+
+func TestRun_SuccessfulTraceIsNotIncomplete(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	trace, err := Run(context.Background(), server.URL, testOptions())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if trace.Incomplete {
+		t.Fatalf("Incomplete = true; want false")
+	}
+}
+
+func TestDescribeNetErr_PeerStreamReset(t *testing.T) {
+	err := errors.New("stream error: stream ID 1; INTERNAL_ERROR; received from peer")
+	got := describeNetErr(err)
+	if !strings.Contains(got, "bot protection") {
+		t.Fatalf("describeNetErr(%v) = %q; want it to explain the reset as likely bot protection", err, got)
+	}
+}

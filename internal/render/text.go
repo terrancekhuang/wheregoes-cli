@@ -42,7 +42,7 @@ func render(w io.Writer, t *tracer.Trace, s style, verbose bool) error {
 		writeHop(ew, i+1, hop, s, verbose)
 		ew.printf("\n")
 	}
-	if s.showFinalCallout {
+	if s.showFinalCallout && !t.Incomplete {
 		writeFinalCallout(ew, t, s)
 	}
 	writeSummary(ew, t, s)
@@ -122,7 +122,13 @@ func writeFinalCallout(ew *errWriter, t *tracer.Trace, s style) {
 func writeSummary(ew *errWriter, t *tracer.Trace, s style) {
 	ew.printf("%s\n", s.dim("Summary:"))
 	ew.printf("  Original URL: %s\n", t.OriginalURL)
-	ew.printf("  Final URL:    %s\n", s.bold(t.FinalURL))
+	// An incomplete trace never confirmed its last URL, so label it as
+	// where the chain stopped rather than as a final destination.
+	if t.Incomplete {
+		ew.printf("  Stopped at:   %s\n", s.bold(t.FinalURL))
+	} else {
+		ew.printf("  Final URL:    %s\n", s.bold(t.FinalURL))
+	}
 	ew.printf("  Total hops:   %d\n", t.HopCount)
 	ew.printf("  Total time:   %s\n", t.TotalTime.Round(time.Millisecond))
 }

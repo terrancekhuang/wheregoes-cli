@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"syscall"
 )
 
@@ -60,5 +61,19 @@ func describeNetErr(err error) string {
 	if errors.As(err, &netErr) && netErr.Timeout() {
 		return "request timed out"
 	}
+	if isPeerStreamReset(err) {
+		return fmt.Sprintf("%s — the server accepted the connection then killed the HTTP/2 stream, "+
+			"which usually means its bot protection rejected a non-browser client rather than that "+
+			"the URL is wrong", err)
+	}
 	return err.Error()
+}
+
+// isPeerStreamReset reports whether err is an HTTP/2 stream reset sent by
+// the server. net/http vendors its http2 package privately, so the typed
+// http2.StreamError isn't reachable here and the wire text is the only
+// available signal; both markers are matched to keep the match narrow.
+func isPeerStreamReset(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "stream error:") && strings.Contains(msg, "received from peer")
 }

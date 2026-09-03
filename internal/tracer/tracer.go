@@ -41,6 +41,11 @@ type Trace struct {
 	Hops        []Hop
 	HopCount    int
 	TotalTime   time.Duration
+	// Incomplete is true when the chain stopped early because a hop
+	// failed. Hops then holds every hop observed before the failure and
+	// FinalURL is the URL that could not be fetched, rather than a
+	// confirmed destination.
+	Incomplete bool
 }
 
 // Options configures a Trace run. The zero value is not directly usable;
@@ -93,10 +98,23 @@ func Run(ctx context.Context, rawURL string, opts Options) (*Trace, error) {
 	currentURL := normalized
 	trace := &Trace{OriginalURL: normalized}
 
+	// finish stamps the summary fields and hands back the trace. Every
+	// exit below goes through it, including the failure paths: a chain
+	// that dies on its last hop has usually already answered the question
+	// the user asked, so the hops observed so far are returned alongside
+	// the error rather than thrown away.
+	finish := func(stoppedAt string, incomplete bool) *Trace {
+		trace.FinalURL = stoppedAt
+		trace.HopCount = len(trace.Hops)
+		trace.TotalTime = time.Since(start)
+		trace.Incomplete = incomplete
+		return trace
+	}
+
 	for {
 		hop, err := fetchHop(ctx, client, currentURL, opts)
 		if err != nil {
-			return nil, &TraceError{Kind: KindNetwork, URL: currentURL, Err: err}
+			return finish(currentURL, true), &TraceError{Kind: KindNetwork, URL: currentURL, Err: err}
 		}
 		trace.Hops = append(trace.Hops, *hop)
 
@@ -104,20 +122,17 @@ func Run(ctx context.Context, rawURL string, opts Options) (*Trace, error) {
 			break
 		}
 		if len(trace.Hops) > opts.MaxHops {
-			return nil, &TraceError{Kind: KindHopLimit, MaxHops: opts.MaxHops}
+			return finish(currentURL, true), &TraceError{Kind: KindHopLimit, MaxHops: opts.MaxHops}
 		}
 
 		next, err := resolveRedirect(currentURL, hop.RedirectTarget)
 		if err != nil {
-			return nil, &TraceError{Kind: KindInvalidURL, URL: hop.RedirectTarget, Err: err}
+			return finish(currentURL, true), &TraceError{Kind: KindInvalidURL, URL: hop.RedirectTarget, Err: err}
 		}
 		currentURL = next
 	}
 
-	trace.FinalURL = currentURL
-	trace.HopCount = len(trace.Hops)
-	trace.TotalTime = time.Since(start)
-	return trace, nil
+	return finish(currentURL, false), nil
 }
 
 func fetchHop(ctx context.Context, client *http.Client, rawURL string, opts Options) (*Hop, error) {

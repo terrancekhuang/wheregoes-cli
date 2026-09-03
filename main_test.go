@@ -221,3 +221,52 @@ func TestRun_CopyFlagFailureWarnsButKeepsExitZero(t *testing.T) {
 		t.Fatalf("stdout = %q; want no confirmation when copy failed", stdout.String())
 	}
 }
+
+// A chain blocked on its last hop still resolved a destination, so --copy
+// should put it on the clipboard rather than leaving the user with
+// nothing — labeled unverified, since it was never actually reached.
+func TestRun_CopyFlagCopiesIncompleteDestination(t *testing.T) {
+	dead := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	deadURL := dead.URL
+	dead.Close() // nothing listens on this address anymore
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, deadURL+"/blocked", http.StatusMovedPermanently)
+	}))
+	defer server.Close()
+
+	var copied string
+	withFakeClipboard(t, func(s string) error {
+		copied = s
+		return nil
+	})
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--copy", server.URL}, &stdout, &stderr); code != 5 {
+		t.Fatalf("exit code = %d; want 5; stderr=%q", code, stderr.String())
+	}
+	if copied != deadURL+"/blocked" {
+		t.Fatalf("copied = %q; want %q", copied, deadURL+"/blocked")
+	}
+	if !strings.Contains(stdout.String(), "Copied unverified destination to clipboard: "+deadURL+"/blocked") {
+		t.Fatalf("stdout = %q; want an unverified copy confirmation", stdout.String())
+	}
+}
+
+// With nothing traced there is no destination to copy, so the clipboard
+// must be left untouched rather than clobbered with an empty string.
+func TestRun_CopyFlagSkipsClipboardWhenNothingTraced(t *testing.T) {
+	called := false
+	withFakeClipboard(t, func(s string) error {
+		called = true
+		return nil
+	})
+
+	var stdout, stderr bytes.Buffer
+	if code := run([]string{"--copy", "://not-a-url"}, &stdout, &stderr); code != 3 {
+		t.Fatalf("exit code = %d; want 3; stderr=%q", code, stderr.String())
+	}
+	if called {
+		t.Fatalf("clipboard was written for a trace that never started")
+	}
+}

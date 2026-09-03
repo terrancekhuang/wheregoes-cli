@@ -60,6 +60,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 	result, err := tracer.Run(context.Background(), url, tracer.DefaultOptions())
 	if err != nil {
+		// A failed trace still carries every hop it got through before
+		// giving up, and for a chain that only died on its last hop those
+		// hops already show where the link goes. Print them before the
+		// error rather than discarding the whole trace.
+		if result != nil && len(result.Hops) > 0 {
+			renderTrace(stdout, result, *verboseFlag)
+			if *copyFlag {
+				copyFinalURL(stdout, stderr, result)
+			}
+		}
 		fmt.Fprintf(stderr, "Error: %s\n", err)
 		var traceErr *tracer.TraceError
 		if errors.As(err, &traceErr) {
@@ -75,23 +85,44 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	renderFn := render.Text
-	if shouldUseColor(os.LookupEnv, isTerminal(stdout)) {
-		renderFn = render.Color
-	}
-	if err := renderFn(stdout, result, *verboseFlag); err != nil {
+	if err := renderTrace(stdout, result, *verboseFlag); err != nil {
 		fmt.Fprintf(stderr, "Error: failed to write output: %s\n", err)
 		return 1
 	}
 
 	if *copyFlag {
-		if err := copyToClipboard(result.FinalURL); err != nil {
-			fmt.Fprintf(stderr, "Warning: could not copy to clipboard: %s\n", err)
-		} else {
-			fmt.Fprintf(stdout, "Copied to clipboard: %s\n", result.FinalURL)
-		}
+		copyFinalURL(stdout, stderr, result)
 	}
 	return 0
+}
+
+// copyFinalURL puts the trace's destination on the clipboard. An
+// incomplete trace still gets copied — a blocked last hop is usually the
+// URL the user wanted — but is labeled as unverified so the notice can't
+// be mistaken for a destination we actually reached.
+func copyFinalURL(stdout, stderr io.Writer, t *tracer.Trace) {
+	if t.FinalURL == "" {
+		return
+	}
+	if err := copyToClipboard(t.FinalURL); err != nil {
+		fmt.Fprintf(stderr, "Warning: could not copy to clipboard: %s\n", err)
+		return
+	}
+	if t.Incomplete {
+		fmt.Fprintf(stdout, "Copied unverified destination to clipboard: %s\n", t.FinalURL)
+		return
+	}
+	fmt.Fprintf(stdout, "Copied to clipboard: %s\n", t.FinalURL)
+}
+
+// renderTrace writes t to stdout, picking the color or plain renderer
+// based on whether color is appropriate for this destination.
+func renderTrace(stdout io.Writer, t *tracer.Trace, verbose bool) error {
+	renderFn := render.Text
+	if shouldUseColor(os.LookupEnv, isTerminal(stdout)) {
+		renderFn = render.Color
+	}
+	return renderFn(stdout, t, verbose)
 }
 
 // isTerminal reports whether w is a TTY. Only *os.File can be a terminal,

@@ -172,3 +172,52 @@ func TestText_TruncatedBodyNote(t *testing.T) {
 		t.Errorf("output missing truncation note\n---\n%s", out)
 	}
 }
+
+// incompleteTrace is a one-hop chain that never reached its destination,
+// mirroring what Run returns when the last hop is blocked.
+func incompleteTrace() *tracer.Trace {
+	return &tracer.Trace{
+		OriginalURL: "https://short.example/abc",
+		FinalURL:    "https://blocked.example/page",
+		HopCount:    1,
+		TotalTime:   142 * time.Millisecond,
+		Incomplete:  true,
+		Hops: []tracer.Hop{
+			{
+				RequestedURL:   "https://short.example/abc",
+				StatusCode:     http.StatusMovedPermanently,
+				Headers:        http.Header{"Location": {"https://blocked.example/page"}},
+				ContentLength:  -1,
+				RedirectTarget: "https://blocked.example/page",
+				Duration:       142 * time.Millisecond,
+			},
+		},
+	}
+}
+
+func TestText_IncompleteTraceLabelsStoppedAt(t *testing.T) {
+	var sb strings.Builder
+	if err := Text(&sb, incompleteTrace(), false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := sb.String()
+	if !strings.Contains(out, "Stopped at:   https://blocked.example/page") {
+		t.Fatalf("output missing 'Stopped at' summary line:\n%s", out)
+	}
+	if strings.Contains(out, "Final URL:") {
+		t.Fatalf("incomplete trace must not claim a final URL:\n%s", out)
+	}
+	if !strings.Contains(out, "Redirects to: https://blocked.example/page") {
+		t.Fatalf("output missing the hop that was observed before the failure:\n%s", out)
+	}
+}
+
+func TestColor_IncompleteTraceOmitsFinalCallout(t *testing.T) {
+	var sb strings.Builder
+	if err := Color(&sb, incompleteTrace(), false); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out := sb.String(); strings.Contains(out, "Final destination") {
+		t.Fatalf("incomplete trace must not print the success callout:\n%s", out)
+	}
+}
